@@ -3,7 +3,7 @@
 ![Home Assistant](https://img.shields.io/badge/Platform-Home%20Assistant%20OS-blue?logo=home-assistant&logoColor=white)
 ![Modbus](https://img.shields.io/badge/Protocol-Modbus%20TCP%20%7C%20RTU-orange)
 ![Hardware](https://img.shields.io/badge/Hardware-Waveshare%20RS485%20%7C%20x86-darkgreen)
-![CI](https://img.shields.io/github/actions/workflow/status/marnoc24/haos/lint.yml?branch=main&label=YAML%20Lint)
+![CI](https://img.shields.io/github/actions/workflow/status/marnoc24/haos-edge-infrastructure/lint.yml?branch=main&label=YAML%20Lint)
 ![Architecture](https://img.shields.io/badge/Architecture-Local--First%20%7C%20Air--Gapped%20IoT-crimson)
 
 A production-grade, 24/7 high-availability Home Energy Management System (HEMS) deployed on bare-metal x86 architecture using **Home Assistant OS (HAOS)**.
@@ -69,40 +69,50 @@ flowchart TD
 The core automation (`automations/heat_pump_photovoltaic_optimizer.yaml`) executes deterministic cost optimization:
 
 1. **Photovoltaic Self-Consumption (Priority 1):**
-   * Dynamically tracks inverter active generation (`sensor.piwnica_inwerter_moc_czynna`).
-   * When surplus exceeds **2000W** (stabilized for 3 minutes), the system aggressively shifts the heat pump's weather compensation curve offset (`intempwaterlawtargetf`) to `-0.5` and raises the Domestic Hot Water (DHW) storage setpoint to `50°C`.
-   * Hysteresis (`below: 1900W` for 2 minutes) prevents compressor short-cycling during transient cloud cover.
-
+   * Dynamically tracks inverter active generation.
+   * Surplus > **2000W** triggers heat pump over-heating (DHW to 50°C, Water Law offset -0.5).
 2. **Optimal Daytime COP Window (13:00 – 15:00):**
-   * Matches peak outdoor ambient temperatures (maximizing thermodynamic coefficient of performance) with the Tauron G12w cheap afternoon energy window.
-
-3. **Off-Peak Night & Weekend Thermal Storage (22:00 – 06:00 / Sat–Sun):**
-   * Uses low-cost baseline grid energy to sustain structural thermal mass and DHW without entering expensive daytime tariff bands.
-
-4. **Peak Shaving (Default / On-Peak Hours):**
-   * Drops the target water law offset down to `-5.0` and DHW setpoint to `40°C`, relying entirely on the building's thermal inertia to glide through high-tariff spikes without comfort degradation.
+   * Matches peak outdoor temperatures with low-cost G12w window.
+3. **Off-Peak Night & Weekend Storage:**
+   * Utilizes baseline tariff rates to sustain structural thermal mass.
+4. **Peak Shaving:**
+   * Throttles output during expensive T1 hours, leveraging building inertia.
 
 ---
 
 ## 🛠 Engineering Challenges & Troubleshooting
 
-### 1. The Huawei SDongleA-05 Modbus TCP Firmware Bottleneck
-* **Symptom:** Inability to maintain Modbus TCP connection on port 502; socket immediately terminated by inverter gateway.
-* **Root Cause Analysis:** Factory shipping firmware version `V100R001C00SPC109` restricted local Modbus TCP access, enforcing strict cloud-only communications via FusionSolar.
-* **Resolution:** Escalated technical inquiry through Huawei Solar Tier-2 Engineering support. Obtained and deployed remote firmware upgrade package (`V100R001C00SPC133` / `SPC140`), successfully unlocking unrestricted local-network Modbus TCP polling.
+### 1. Huawei SDongleA-05 Modbus TCP Firmware Bottleneck
+* **Symptom:** Port 502 connection rejected.
+* **Root Cause:** Factory SPC109 firmware restricted local access.
+* **Resolution:** Escalated to Huawei Tier-2 Engineering for SPC133 upgrade, unlocking local polling.
 
-### 2. RS485 Serial Timing & Register Chattering on Waveshare Gateway
-* **Symptom:** Intermittent Modbus command drops when updating multiple registers simultaneously (e.g., Water Law target and DHW target).
-* **Root Cause Analysis:** The Waveshare RS485-to-Ethernet bridge experienced buffer saturation when consecutive TCP frame packets were translated to half-duplex RS485 serial transmissions without an inter-frame delay.
-* **Resolution:** Implemented explicit 2-second bus settling intervals (`delay: "00:00:02"`) inside Home Assistant sequences between sequential `number.set_value` register writes, ensuring zero serial frame dropouts.
+### 2. RS485 Serial Timing on Waveshare Gateway
+* **Symptom:** Intermittent Modbus command drops.
+* **Resolution:** Implemented 2s inter-frame delay between register writes to prevent half-duplex buffer saturation.
+
+---
+
+## 🗺 Future Roadmap (Next Steps)
+
+Planned expansions to enhance system granularity and security:
+
+*   **Secure Visual Monitoring:** 
+    *   Integration of **TP-Link IP Cameras** via RTSP/ONVIF protocols. 
+    *   Implementation of strict **VLAN isolation** on OPNsense to ensure cameras remain air-gapped from the Internet while providing local H.264 streams to Home Assistant.
+*   **Multi-Zone Thermal Feedback:** 
+    *   Deployment of high-precision temperature sensors on both **Ground Floor** and **First Floor**.
+*   **Advanced Control Loop Logic:** 
+    *   Refining the Heat Pump optimization engine to move from a "Weather Compensation only" model to a **Hybrid Thermal Feedback loop**.
+    *   The system will use real-time indoor temperature deltas to adjust the Modbus Water Law offsets more accurately.
 
 ---
 
 ## 🔒 Security & Local-First Philosophy
 
-* **Secrets Decoupling:** Sensitive credentials, unit identifiers, and IP allocations are abstracted into `secrets.yaml` (see [`secrets.yaml.example`](secrets.yaml.example)).
-* **Network Segmentation:** Physical separation planned on OPNsense, restricting all IoT/Modbus devices to an isolated VLAN with no outbound WAN traversal permission.
-* **CI Validation:** Every commit undergoes automatic syntax and structural validation via GitHub Actions ([`.github/workflows/lint.yml`](.github/workflows/lint.yml)).
+* **Secrets Decoupling:** Credentials abstracted into `secrets.yaml`.
+* **Network Segmentation:** Physical separation via OPNsense VLANs for IoT devices.
+* **CI Validation:** Automatic YAML linting via GitHub Actions.
 
 ---
 

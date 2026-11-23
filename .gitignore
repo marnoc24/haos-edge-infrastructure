@@ -1,0 +1,50 @@
+# ==========================================
+# Home Assistant Core & State
+# ==========================================
+secrets.yaml
+.storage/
+*.db
+*.db-shm
+*.db-wal
+home-assistant.log*
+trace.*.json
+
+# ==========================================
+# Backups & Temporary files
+# ==========================================
+backups/
+backup/
+*.tar
+*.zip
+*.gz
+tmp/
+
+# ==========================================
+# Certificates & Sensitive Network Keys
+# ==========================================
+ssl/
+*.pem
+*.key
+*.crt
+*.cer
+
+# ==========================================
+# Environment & IDE
+# ==========================================
+.env
+.venv/
+__pycache__/
+*.pyc
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+Thumbs.db
+.DS_Store
+
+# ==========================================
+# Custom Components / Third-Party Addons
+# (Keep tracked only if explicitly developed by you)
+# ==========================================
+custom_components/
+blueprints/

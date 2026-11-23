@@ -1,0 +1,28 @@
+name: CI - YAML & Configuration Lint
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  yamllint:
+    name: Lint YAML Files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install yamllint
+        run: |
+          pip install yamllint
+
+      - name: Run yamllint
+        run: |
+          yamllint -d "{extends: relaxed, rules: {line-length: {max: 120, allow-non-breakable-words: true}}}" .

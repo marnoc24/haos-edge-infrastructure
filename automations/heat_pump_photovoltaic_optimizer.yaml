@@ -1,0 +1,149 @@
+# ==============================================================================
+# AUTOMATION: HEAT PUMP DYNAMIC OPTIMIZATION & TARIFF ARBITRAGE
+# Hardware: Samsung Mono HT Quiet (via Modbus RTU / Waveshare RS485-TCP Gateway)
+# Telemetry: Huawei SUN2000-KTL Inverter (Active Power via Modbus TCP SDongle)
+# Tariff Profile: Tauron G12w (Poland - Day/Night/Weekend Distribution)
+# ==============================================================================
+
+- id: "heat_pump_dynamic_cost_optimization"
+  alias: "HVAC - Heat Pump & PV Self-Consumption Optimizer"
+  description: >-
+    Dynamically adjusts heat pump weather compensation curve offset (Water Law)
+    and Domestic Hot Water (DHW) setpoints based on real-time solar production,
+    electricity tariff windows (Tauron G12w), and thermal storage inertia.
+  mode: restart
+
+  trigger:
+    # --------------------------------------------------------------------------
+    # 1. Tariff G12w Transition Triggers
+    # --------------------------------------------------------------------------
+    - platform: time
+      at: "06:00:00"
+      id: "peak_start_morning"
+    - platform: time
+      at: "13:00:00"
+      id: "valley_start_afternoon"
+    - platform: time
+      at: "15:00:00"
+      id: "peak_start_afternoon"
+    - platform: time
+      at: "22:00:00"
+      id: "valley_start_night"
+
+    # --------------------------------------------------------------------------
+    # 2. Solar Production Triggers (with Hysteresis and Time Stabilization)
+    # Prevents compressor and EEPROM cycling during transient cloud cover.
+    # --------------------------------------------------------------------------
+    - platform: numeric_state
+      entity_id: sensor.piwnica_inwerter_moc_czynna
+      above: 2000
+      for:
+        minutes: 3
+      id: "pv_surplus_detected"
+
+    - platform: numeric_state
+      entity_id: sensor.piwnica_inwerter_moc_czynna
+      below: 1900
+      for:
+        minutes: 2
+      id: "pv_drop_detected"
+
+    # --------------------------------------------------------------------------
+    # 3. System Lifecycle Triggers
+    # Ensures setpoints are properly aligned after HA reboot or reload.
+    # --------------------------------------------------------------------------
+    - platform: homeassistant
+      event: start
+      id: "ha_startup_reconciliation"
+
+  action:
+    - choose:
+        # ======================================================================
+        # SCENARIO 1: PV SURPLUS ARBITRAGE (> 2000W sustained)
+        # Strategy: Maximize self-consumption by overcooling/overheating thermal mass
+        # and raising DHW storage tank temperature.
+        # ======================================================================
+        - conditions:
+            - condition: numeric_state
+              entity_id: sensor.piwnica_inwerter_moc_czynna
+              above: 2000
+          sequence:
+            - action: number.set_value
+              target:
+                entity_id: number.piwnica_heatpump_mono_ht_quiet_intempwaterlawtargetf
+              data:
+                value: -0.5
+            # Hardware settling delay: Prevents Modbus RTU serial buffer overflow on Waveshare bridge
+            - delay: "00:00:02"
+            - action: number.set_value
+              target:
+                entity_id: number.piwnica_heatpump_mono_ht_quiet_indoordhwsettemp
+              data:
+                value: 50
+
+        # ======================================================================
+        # SCENARIO 2: OPTIMAL COP WINDOW (13:00 - 15:00 Daily)
+        # Strategy: Leverage higher ambient daytime temperatures (improved COP)
+        # combined with Tauron T2 low-cost energy rates.
+        # ======================================================================
+        - conditions:
+            - condition: time
+              after: "13:00:00"
+              before: "15:00:00"
+          sequence:
+            - action: number.set_value
+              target:
+                entity_id: number.piwnica_heatpump_mono_ht_quiet_intempwaterlawtargetf
+              data:
+                value: -1.5
+            - delay: "00:00:02"
+            - action: number.set_value
+              target:
+                entity_id: number.piwnica_heatpump_mono_ht_quiet_indoordhwsettemp
+              data:
+                value: 50
+
+        # ======================================================================
+        # SCENARIO 3: OFF-PEAK TARIFF WINDOW (Tauron G12w Valley)
+        # Strategy: Night heating (22:00-06:00) & Weekends (Sat-Sun) at baseline rates.
+        # ======================================================================
+        - conditions:
+            - condition: or
+              conditions:
+                - condition: time
+                  after: "22:00:00"
+                  before: "06:00:00"
+                - condition: time
+                  weekday:
+                    - sat
+                    - sun
+          sequence:
+            - action: number.set_value
+              target:
+                entity_id: number.piwnica_heatpump_mono_ht_quiet_intempwaterlawtargetf
+              data:
+                value: -3.5
+            - delay: "00:00:02"
+            - action: number.set_value
+              target:
+                entity_id: number.piwnica_heatpump_mono_ht_quiet_indoordhwsettemp
+              data:
+                value: 45
+
+      # ========================================================================
+      # SCENARIO 4: EXPENSIVE ON-PEAK HOURS (Default / Tariff T1 Peak)
+      # Strategy: Peak shaving. Throttle heat pump output, leverage building
+      # thermal inertia to coast through high-cost windows without comfort loss.
+      # ========================================================================
+      default:
+        - action: number.set_value
+          target:
+            entity_id: number.piwnica_heatpump_mono_ht_quiet_intempwaterlawtargetf
+          data:
+            value: -5.0
+        - delay: "00:00:02"
+        - action: number.set_value
+          target:
+            entity_id: number.piwnica_heatpump_mono_ht_quiet_indoordhwsettemp
+          data:
+            value: 40
